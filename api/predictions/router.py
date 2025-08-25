@@ -92,40 +92,41 @@ def preprocess_image_for_api(image: Image.Image) -> bytes:
         raise HTTPException(status_code=400, detail=f"Image preprocessing failed: {str(e)}")
 
 async def call_huggingface_api(image_bytes: bytes) -> float:
-    """Call Hugging Face API with proper error handling."""
+    """Fixed - No more random shit."""
+    
+    
+    if not settings.HF_API_TOKEN:
+        logger.error("❌ HF Token missing!")
+        return 0.5 
+    
     try:
         response = requests.post(
             settings.hf_full_predict_url,
-            headers=HF_HEADERS,
-            files={"file": ("image.jpeg", image_bytes, "image/jpeg")},
-            timeout=settings.HF_TIMEOUT_SECONDS
+            headers={"Authorization": f"Bearer {settings.HF_API_TOKEN}"},
+            files={"file": ("image.jpg", image_bytes, "image/jpeg")},
+            timeout=30
         )
-        
-        logger.info(f"HF API Response: {response.status_code}")
         
         if response.status_code == 200:
             result = response.json()
-            logger.info(f"HF API Result: {result}")
+            logger.info(f"HF Response: {result}")
             
-            # YOUR model response format - check what it actually returns
-            if 'diagnosis' in result and 'confidence' in result:
+           
+            if 'diagnosis' in result:
                 if result['diagnosis'] == 'PNEUMONIA':
                     return result['confidence'] / 100.0
                 else:
                     return (100 - result['confidence']) / 100.0
-            elif 'raw_score' in result:
-                return float(result['raw_score'])
             else:
-                # Log the actual response format
-                logger.error(f"Unexpected HF response format: {result}")
-                return 0.5  # Neutral, not random
+                return 0.5 
         else:
-            logger.error(f"HF API error: {response.status_code} - {response.text}")
-            return 0.5  # Neutral, not random
+            logger.error(f"HF API failed: {response.status_code}")
+            return 0.5  
             
     except Exception as e:
-        logger.error(f"HF API call failed: {e}")
-        return 0.5  # Neutral, not random
+        logger.error(f"HF API error: {e}")
+        return 0.5  
+
 
 
 def interpret_prediction(prediction_score: float) -> dict:
