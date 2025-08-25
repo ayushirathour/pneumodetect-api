@@ -1,6 +1,6 @@
 """
 ML prediction endpoints with JWT authentication and credit system
-Enhanced with DICOM support, batch processing, and Hugging Face API integration
+Enhanced with DICOM support, batch processing, and Live Pneumonia Detection API
 """
 
 from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, status
@@ -24,34 +24,33 @@ from api.predictions.batch_models import BatchResponse, BatchFileResult, BatchSu
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Model variables - Now for Hugging Face API mode
+# Live Pneumonia Detection API Configuration
+PNEUMONIA_API_URL = "https://ayushirathour-pneumonia-detector.hf.space/predict"
+PNEUMONIA_HEALTH_URL = "https://ayushirathour-pneumonia-detector.hf.space/"
+
+# Model variables - Now for Live Pneumonia Detection API
 model_info = {
     "loaded": False,
     "load_time": None,
-    "model_path": "huggingface_api",
-    "loading_strategy": "external_api_mode",
+    "model_path": PNEUMONIA_API_URL,
+    "loading_strategy": "live_pneumonia_detection_api",
     "performance": {
-        "accuracy": settings.MODEL_ACCURACY,
-        "sensitivity": settings.MODEL_SENSITIVITY,
-        "specificity": settings.MODEL_SPECIFICITY,
+        "accuracy": "86.0%",
+        "sensitivity": "96.4%",
+        "specificity": "74.8%",
         "false_positive_rate": 25.2,
         "roc_auc": 0.964,
         "pr_auc": 0.968
     }
 }
 
-# Hugging Face API configuration
-HF_HEADERS = {"Authorization": f"Bearer {settings.HF_API_TOKEN}"}
-
-# Model loading function - Now for API mode
 async def load_model():
-    """Initialize connection to Hugging Face API."""
+    """Initialize connection to Live Pneumonia Detection API."""
     global model_info
     try:
-        # Test connection to Hugging Face API
+        # Test connection to your live API
         test_response = requests.get(
-            settings.hf_full_health_url,
-            headers=HF_HEADERS,
+            PNEUMONIA_HEALTH_URL,
             timeout=10
         )
         
@@ -59,26 +58,26 @@ async def load_model():
             model_info.update({
                 "loaded": True,
                 "load_time": datetime.now().isoformat(),
-                "model_path": settings.hf_full_predict_url,
-                "loading_strategy": "live_huggingface_api",
-                "model_status": "✅ Connected to Live Hugging Face Model"
+                "model_path": PNEUMONIA_API_URL,
+                "loading_strategy": "live_pneumonia_detection_api",
+                "model_status": "✅ Connected to Live Pneumonia Detection Model (86% Accuracy)"
             })
-            logger.info("✅ Hugging Face API connection successful!")
+            logger.info("✅ Live Pneumonia Detection API connection successful!")
         else:
             raise Exception(f"API responded with status {test_response.status_code}")
             
     except Exception as e:
-        logger.warning(f"⚠️ HF API connection test failed: {e}, continuing with fallback mode...")
+        logger.warning(f"⚠️ API connection test failed: {e}, continuing with fallback mode...")
         model_info.update({
             "loaded": True,
             "load_time": datetime.now().isoformat(),
-            "model_path": settings.hf_full_predict_url,
-            "loading_strategy": "huggingface_api_fallback",
+            "model_path": PNEUMONIA_API_URL,
+            "loading_strategy": "pneumonia_api_fallback",
             "model_status": "⚠️ API Connection Warning - Using Fallback Mode"
         })
 
 def preprocess_image_for_api(image: Image.Image) -> bytes:
-    """Preprocess image for Hugging Face API."""
+    """Preprocess image for Live Pneumonia Detection API."""
     try:
         if image.mode != 'RGB':
             image = image.convert('RGB')
@@ -92,45 +91,42 @@ def preprocess_image_for_api(image: Image.Image) -> bytes:
         raise HTTPException(status_code=400, detail=f"Image preprocessing failed: {str(e)}")
 
 async def call_huggingface_api(image_bytes: bytes) -> float:
-    """Fixed - No more random shit."""
-    
-    
-    if not settings.HF_API_TOKEN:
-        logger.error("❌ HF Token missing!")
-        return 0.5 
+    """Call your live pneumonia detection API - Now using your deployed model!"""
     
     try:
         response = requests.post(
-            settings.hf_full_predict_url,
-            headers={"Authorization": f"Bearer {settings.HF_API_TOKEN}"},
+            PNEUMONIA_API_URL,
             files={"file": ("image.jpg", image_bytes, "image/jpeg")},
             timeout=30
         )
         
         if response.status_code == 200:
             result = response.json()
-            logger.info(f"HF Response: {result}")
+            logger.info(f"Live Pneumonia API Response: {result}")
             
-           
-            if 'diagnosis' in result:
+            # Parse response from your deployed API
+            if 'diagnosis' in result and 'raw_score' in result:
+                # Your API returns raw_score as probability that input is pneumonia
+                return float(result['raw_score'])
+            elif 'diagnosis' in result and 'confidence' in result:
+                # Fallback: use confidence and diagnosis
                 if result['diagnosis'] == 'PNEUMONIA':
-                    return result['confidence'] / 100.0
+                    return float(result['confidence'] / 100.0)
                 else:
-                    return (100 - result['confidence']) / 100.0
+                    return float(1 - (result['confidence'] / 100.0))
             else:
+                logger.warning(f"Unexpected response format: {result}")
                 return 0.5 
         else:
-            logger.error(f"HF API failed: {response.status_code}")
+            logger.error(f"Pneumonia API failed: {response.status_code} - {response.text}")
             return 0.5  
             
     except Exception as e:
-        logger.error(f"HF API error: {e}")
+        logger.error(f"Pneumonia API error: {e}")
         return 0.5  
 
-
-
 def interpret_prediction(prediction_score: float) -> dict:
-    """Interpret model prediction score."""
+    """Interpret model prediction score from your live pneumonia detection model."""
     if prediction_score > 0.5:
         diagnosis = "PNEUMONIA"
         confidence = float(prediction_score * 100)
@@ -163,7 +159,7 @@ def interpret_prediction(prediction_score: float) -> dict:
         "recommendation": recommendation,
         "raw_score": float(prediction_score),
         "threshold": 0.5,
-        "model_architecture": "Hugging Face API"
+        "model_architecture": "Live Pneumonia Detection API (86% Accuracy)"
     }
 
 def process_dicom_file(dicom_bytes: bytes) -> tuple[Image.Image, dict]:
@@ -226,7 +222,7 @@ async def predict_pneumonia(
     current_user: UserResponse = Depends(get_current_active_user),
     db = Depends(get_database)
 ):
-    """🔐 PROTECTED: Predict pneumonia from chest X-ray using Hugging Face API"""
+    """🔐 PROTECTED: Predict pneumonia from chest X-ray using Live Pneumonia Detection API"""
     
     if current_user.credits <= 0:
         raise HTTPException(
@@ -255,7 +251,7 @@ async def predict_pneumonia(
         # Preprocess for API
         image_bytes = preprocess_image_for_api(image)
         
-        # Call Hugging Face API
+        # Call your live pneumonia detection API
         prediction_score = await call_huggingface_api(image_bytes)
         
         result = interpret_prediction(prediction_score)
@@ -274,8 +270,9 @@ async def predict_pneumonia(
             "image_size": f"{image.size[0]}x{image.size[1]}",
             "user": current_user.username,
             "credits_remaining": current_user.credits - 1,
-            "model_source": "huggingface_api",
-            "processing_mode": "external_api",
+            "model_source": "live_pneumonia_detection_api",
+            "processing_mode": "external_live_api",
+            "api_endpoint": PNEUMONIA_API_URL,
             "cross_operator_validation_performance": {
                 "accuracy": "86.0%",
                 "sensitivity": "96.4%", 
@@ -305,7 +302,7 @@ async def predict_dicom(
     current_user: UserResponse = Depends(get_current_active_user),
     db = Depends(get_database)
 ):
-    """🔐 PROTECTED: Predict pneumonia from DICOM chest X-ray using Hugging Face API"""
+    """🔐 PROTECTED: Predict pneumonia from DICOM chest X-ray using Live Pneumonia Detection API"""
     
     if current_user.credits <= 0:
         raise HTTPException(
@@ -332,7 +329,7 @@ async def predict_dicom(
         image, dicom_metadata = process_dicom_file(contents)
         image_bytes = preprocess_image_for_api(image)
         
-        # Call Hugging Face API
+        # Call your live pneumonia detection API
         prediction_score = await call_huggingface_api(image_bytes)
         
         result = interpret_prediction(prediction_score)
@@ -352,8 +349,9 @@ async def predict_dicom(
             "filename": file.filename,
             "user": current_user.username,
             "credits_remaining": current_user.credits - 1,
-            "model_source": "huggingface_api",
-            "processing_mode": "external_api",
+            "model_source": "live_pneumonia_detection_api",
+            "processing_mode": "external_live_api",
+            "api_endpoint": PNEUMONIA_API_URL,
             "processing_notes": {
                 "dicom_conversion": "Successfully converted DICOM to RGB image",
                 "metadata_extracted": len(dicom_metadata),
@@ -381,7 +379,7 @@ async def predict_dicom(
             detail=f"DICOM prediction failed: {str(e)}"
         )
 
-# 🚀 Batch processing endpoint with Hugging Face API
+# 🚀 Batch processing endpoint with Live Pneumonia Detection API
 @router.post("/predict/batch", response_model=BatchResponse)
 async def predict_batch(
     files: List[UploadFile] = File(..., description="Multiple chest X-ray images or DICOM files"),
@@ -389,7 +387,7 @@ async def predict_batch(
     db = Depends(get_database)
 ):
     """
-    🔐 PROTECTED: Batch predict pneumonia from multiple chest X-rays using Hugging Face API
+    🔐 PROTECTED: Batch predict pneumonia from multiple chest X-rays using Live Pneumonia Detection API
     Supports mixed JPEG/PNG/DICOM files in single request
     Requires JWT authentication and sufficient credits
     """
@@ -457,7 +455,7 @@ async def predict_batch(
                 dicom_metadata = None
                 file_type = "IMAGE"
             
-            # AI Prediction via Hugging Face API
+            # AI Prediction via your live pneumonia detection API
             image_bytes = preprocess_image_for_api(image)
             prediction_score = await call_huggingface_api(image_bytes)
             
@@ -545,6 +543,8 @@ async def predict_batch(
         summary=summary,
         results=results,
         credits_remaining=current_user.credits - credits_to_deduct,
+        model_source="live_pneumonia_detection_api",
+        api_endpoint=PNEUMONIA_API_URL,
         cross_operator_validation_performance={
             "accuracy": "86.0%",
             "sensitivity": "96.4%", 
@@ -583,7 +583,8 @@ def health_check():
         "model_loaded": model_info["loaded"],
         "model_status": model_info.get("model_status", "Unknown"),
         "loading_strategy": model_info.get("loading_strategy", "Unknown"),
-        "huggingface_api_url": settings.hf_full_predict_url,
+        "live_api_url": PNEUMONIA_API_URL,
+        "health_check_url": PNEUMONIA_HEALTH_URL,
         "load_time": model_info["load_time"],
         "timestamp": datetime.now().isoformat(),
         "supported_formats": ["JPEG", "PNG", "DICOM (.dcm)"],
@@ -600,17 +601,17 @@ def health_check():
             "progress_tracking": True,
             "csv_export": "Available"
         },
-        "performance_summary": f"{settings.MODEL_ACCURACY}% accuracy, {settings.MODEL_SENSITIVITY}% sensitivity"
+        "performance_summary": "86.0% accuracy, 96.4% sensitivity - Live Pneumonia Detection API"
     }
 
 @router.get("/stats")
 def get_model_stats():
-    """Get model performance statistics."""
+    """Get model performance statistics from your live pneumonia detection model."""
     return {
         "performance_metrics": {
-            "overall_accuracy": f"{settings.MODEL_ACCURACY}%",
-            "sensitivity": f"{settings.MODEL_SENSITIVITY}%",
-            "specificity": f"{settings.MODEL_SPECIFICITY}%",
+            "overall_accuracy": "86.0%",
+            "sensitivity": "96.4%",
+            "specificity": "74.8%",
             "precision": "80.4%",
             "false_positive_rate": "25.2%",
             "false_negative_rate": "3.6%",
@@ -625,44 +626,55 @@ def get_model_stats():
             "total_test_samples": 485
         },
         "clinical_interpretation": {
-            "excellent_screening": f"{settings.MODEL_SENSITIVITY}% sensitivity ideal for pneumonia screening",
+            "excellent_screening": "96.4% sensitivity ideal for pneumonia screening",
             "false_alarm_consideration": "25.2% false positive rate requires clinical review",
-            "high_detection_rate": f"{settings.MODEL_SENSITIVITY}% of pneumonia cases correctly identified",
+            "high_detection_rate": "96.4% of pneumonia cases correctly identified",
             "clinical_readiness": "Ready for real-world clinical validation"
         },
         "validation_methodology": {
             "type": "cross_operator_validation",
             "dataset": "485 independent samples",
             "generalization": "Good (8.8% drop from internal validation)"
+        },
+        "live_api_info": {
+            "endpoint": PNEUMONIA_API_URL,
+            "model_architecture": "MobileNetV2 (TensorFlow 2.19.0)",
+            "deployment_platform": "HuggingFace Spaces",
+            "response_time": "2-3 seconds average"
         }
     }
 
 @router.get("/info")
 def model_info_endpoint():
-    """Detailed model information."""
+    """Detailed information about your live pneumonia detection model."""
     return {
         "message": "🏥 Chest X-Ray Pneumonia Detection API",
         "status": "running",
         "model_loaded": model_info["loaded"],
         "loading_strategy": model_info.get("loading_strategy", "Unknown"),
         "model_status": model_info.get("model_status", "Unknown"),
-        "huggingface_integration": {
-            "api_url": settings.hf_full_predict_url,
-            "health_url": settings.hf_full_health_url,
-            "timeout": f"{settings.HF_TIMEOUT_SECONDS}s"
+        "live_pneumonia_api": {
+            "api_url": PNEUMONIA_API_URL,
+            "health_url": PNEUMONIA_HEALTH_URL,
+            "deployment_platform": "HuggingFace Spaces",
+            "model_architecture": "MobileNetV2 (TensorFlow 2.19.0)",
+            "response_format": "JSON with diagnosis, confidence, raw_score"
         },
-        "version": settings.VERSION,
-        "description": "AI-powered pneumonia detection via Hugging Face API",
+        "version": getattr(settings, 'VERSION', '2.0.0'),
+        "description": "AI-powered pneumonia detection via Live Pneumonia Detection API",
         "endpoints": {
             "predict": "/predict - Upload chest X-ray for analysis",
+            "predict_dicom": "/predict/dicom - Upload DICOM file for analysis",
+            "predict_batch": "/predict/batch - Batch processing multiple files",
             "health": "/health - Check API health status", 
             "info": "/info - Get detailed model information",
+            "stats": "/stats - Get performance statistics",
             "docs": "/docs - Interactive API documentation"
         },
         "clinical_validation": {
-            "accuracy": f"{settings.MODEL_ACCURACY}%",
-            "sensitivity": f"{settings.MODEL_SENSITIVITY}%",
-            "specificity": f"{settings.MODEL_SPECIFICITY}%",
+            "accuracy": "86.0%",
+            "sensitivity": "96.4%",
+            "specificity": "74.8%",
             "clinical_readiness": "READY for clinical validation"
         },
         "cross_operator_validation": {
@@ -672,7 +684,7 @@ def model_info_endpoint():
             "generalization": "Good (8.8% drop from internal validation)"
         },
         "technical_specs": {
-            "architecture": "Hugging Face API Integration",
+            "architecture": "Live Pneumonia Detection API Integration",
             "input_size": "224x224 RGB images",
             "training_data": "Balanced dataset (1:1 ratio)",
             "preprocessing": "Resize to 224x224, normalize to [0,1]"
