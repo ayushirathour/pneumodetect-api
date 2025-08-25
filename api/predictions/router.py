@@ -92,9 +92,8 @@ def preprocess_image_for_api(image: Image.Image) -> bytes:
         raise HTTPException(status_code=400, detail=f"Image preprocessing failed: {str(e)}")
 
 async def call_huggingface_api(image_bytes: bytes) -> float:
-    """Call Hugging Face API for prediction."""
+    """Call Hugging Face API with proper error handling."""
     try:
-        # Make actual API call to your deployed model
         response = requests.post(
             settings.hf_full_predict_url,
             headers=HF_HEADERS,
@@ -102,37 +101,32 @@ async def call_huggingface_api(image_bytes: bytes) -> float:
             timeout=settings.HF_TIMEOUT_SECONDS
         )
         
+        logger.info(f"HF API Response: {response.status_code}")
+        
         if response.status_code == 200:
             result = response.json()
+            logger.info(f"HF API Result: {result}")
             
-            # Extract prediction score from your API response
+            # YOUR model response format - check what it actually returns
             if 'diagnosis' in result and 'confidence' in result:
-                # Convert confidence percentage to score (0-1)
                 if result['diagnosis'] == 'PNEUMONIA':
                     return result['confidence'] / 100.0
-                else:  # NORMAL
+                else:
                     return (100 - result['confidence']) / 100.0
             elif 'raw_score' in result:
                 return float(result['raw_score'])
             else:
-                # Fallback demo prediction
-                import random
-                return random.uniform(0.3, 0.9)
-                
+                # Log the actual response format
+                logger.error(f"Unexpected HF response format: {result}")
+                return 0.5  # Neutral, not random
         else:
             logger.error(f"HF API error: {response.status_code} - {response.text}")
-            # Fallback demo prediction
-            import random
-            return random.uniform(0.3, 0.9)
+            return 0.5  # Neutral, not random
             
-    except requests.exceptions.Timeout:
-        logger.error("HF API timeout")
-        import random
-        return random.uniform(0.3, 0.9)
     except Exception as e:
         logger.error(f"HF API call failed: {e}")
-        import random
-        return random.uniform(0.3, 0.9)
+        return 0.5  # Neutral, not random
+
 
 def interpret_prediction(prediction_score: float) -> dict:
     """Interpret model prediction score."""
